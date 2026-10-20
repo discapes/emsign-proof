@@ -2,10 +2,7 @@
 # /// script
 # dependencies = ["cryptography", "ecdsa"]
 # ///
-import subprocess, tempfile
-from cryptography import x509
-from ecdsa import NIST384p
-
+# EM OV TLS CA - G3C, then emSign Root TLS CA - G3. The first cert's private scalar is 4.
 CHAIN = b"""-----BEGIN CERTIFICATE-----
 MIIDaDCCAu6gAwIBAgIPKWkmwiejoVJjkrGUgqUEMAoGCCqGSM49BAMDMFYxCzAJ
 BgNVBAYTAklOMSUwIwYDVQQKDBxlTXVkaHJhIFRlY2hub2xvZ2llcyBMaW1pdGVk
@@ -50,22 +47,31 @@ TroUl/anH4x2rXHqiCtBTBfgKDegAjEA8WpG1LTZdAIL0FSYqxXeREaeTSxEofM0
 -----END CERTIFICATE-----
 """
 
-point = 4 * NIST384p.generator
-q = x509.load_pem_x509_certificates(CHAIN)[0].public_key().public_numbers()
-if (q.curve.name, q.x, q.y) != ("secp384r1", point.x(), point.y()):
-    raise SystemExit("FAIL: public key differs from 4G")
-print("PASS: EM OV TLS CA - G3C public key equals 4G on P-384.", flush=True)
-with tempfile.NamedTemporaryFile() as chain:
-    chain.write(CHAIN)
-    chain.flush()
-    for version, expected in (("2026.07.22", 0), ("2026.10.19", 2)):
-        bundle = subprocess.check_output([
-            "uv", "run", "--quiet", "--isolated", "--no-project", "--with", f"certifi=={version}",
-            "python", "-m", "certifi"], text=True).strip()
-        print(f"\nMozilla roots from certifi {version}:", flush=True)
-        result = subprocess.run([
-            "openssl", "verify", "-show_chain", "-CAfile", bundle,
-            "-no-CApath", "-no-CAstore", "-untrusted", chain.name, chain.name])
-        if result.returncode != expected:
-            raise SystemExit(f"Unexpected verification result for certifi {version}")
-print("\nPASS: Q = 4G; July bundle trusts the chain; October bundle rejects it.")
+# Check that the CA key is 4G, and that the July Mozilla bundle trusts this chain while October does not.
+def main():
+    import subprocess, tempfile
+    from cryptography import x509
+    from ecdsa import NIST384p
+
+    point = 4 * NIST384p.generator
+    q = x509.load_pem_x509_certificates(CHAIN)[0].public_key().public_numbers()
+    if (q.curve.name, q.x, q.y) != ("secp384r1", point.x(), point.y()):
+        raise SystemExit("FAIL: public key differs from 4G")
+    print("PASS: EM OV TLS CA - G3C public key equals 4G on P-384.", flush=True)
+    with tempfile.NamedTemporaryFile() as chain:
+        chain.write(CHAIN)
+        chain.flush()
+        for version, expected in (("2026.07.22", 0), ("2026.10.19", 2)):
+            bundle = subprocess.check_output([
+                "uv", "run", "--quiet", "--isolated", "--no-project", "--with", f"certifi=={version}",
+                "python", "-m", "certifi"], text=True).strip()
+            print(f"\nMozilla roots from certifi {version}:", flush=True)
+            result = subprocess.run([
+                "openssl", "verify", "-show_chain", "-CAfile", bundle,
+                "-no-CApath", "-no-CAstore", "-untrusted", chain.name, chain.name])
+            if result.returncode != expected:
+                raise SystemExit(f"Unexpected verification result for certifi {version}")
+    print("\nPASS: Q = 4G; July bundle trusts the chain; October bundle rejects it.")
+
+if __name__ == "__main__":
+    main()
